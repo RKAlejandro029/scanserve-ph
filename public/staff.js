@@ -21,8 +21,8 @@ const edit = (type, id, title = 'Edit') => '<button class="button light small" d
 const command = (task, id, title, extra = '') => '<button class="button light small" data-task="' + task + '" data-id="' + esc(id) + '" ' + extra + '>' + title + '</button>';
 
 function table(head, rows, fallback) {
-  return rows.length ? '<div class="table-scroll"><table><thead><tr>' + head.map(label => '<th scope="col">' + label + '</th>').join('') + '</tr></thead><tbody>'
-    + rows.map(cells => '<tr>' + cells.map(cell => '<td>' + cell + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' : empty(fallback);
+  return rows.length ? '<div class="table-scroll"><table role="table"><thead role="rowgroup"><tr role="row">' + head.map(label => '<th scope="col" role="columnheader">' + esc(label) + '</th>').join('') + '</tr></thead><tbody role="rowgroup">'
+    + rows.map(cells => '<tr role="row">' + cells.map((cell, i) => '<td role="cell"><span class="cell-label" aria-hidden="true">' + esc(head[i]) + '</span><div>' + cell + '</div></td>').join('') + '</tr>').join('') + '</tbody></table></div>' : empty(fallback);
 }
 
 async function asDataURL(file) {
@@ -45,6 +45,8 @@ export async function staffPage(slug, view) {
   shell('<main class="wrap staff"><section class="board-title"><div><p class="overline">' + esc(data.name) + (data.demo ? ' · DEMO RESTAURANT' : '') + '</p><h1>' + title + '</h1></div><span class="role">' + esc(data.role) + '</span></section>'
     + '<nav class="tabs" aria-label="Staff sections">' + allowed.map(name => '<a href="/staff/' + slug + '/' + name.toLowerCase() + '"' + (active === name ? ' aria-current="page"' : '') + '>' + (name === 'Analytics' ? 'Sales' : name) + '</a>').join('') + '</nav>'
     + '<section id="staff-content"></section><dialog id="staff-dialog"></dialog></main>', '<button class="text-button" data-logout>Sign out</button>');
+  const activeTab = document.querySelector('.staff .tabs [aria-current="page"]');
+  activeTab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   const content = document.querySelector('#staff-content');
   const dialog = document.querySelector('#staff-dialog');
   const branch = id => data.branches.find(row => row.id === id)?.name || id;

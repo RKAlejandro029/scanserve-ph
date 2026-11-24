@@ -194,14 +194,17 @@ async function guestPage(slug, code) {
   }
   function showMenu() {
     content.innerHTML = '<div class="menu-tools"><div class="chips">' + [{ id: '', name: 'All dishes' }, ...data.categories].map(row => '<button data-category="' + esc(row.id) + '">' + esc(row.name) + '</button>').join('') + '</div>'
-      + '<label class="search"><span class="sr-only">Search dishes</span><input id="search" type="search" placeholder="Search dishes" value="' + esc(search) + '"></label></div><div id="menu-list" class="dish-grid"></div><section id="recommendations" class="recommendations"></section><div class="cart-bar"></div>';
+      + '<label class="search"><span class="sr-only">Search dishes</span><input id="search" type="search" placeholder="Search dishes" value="' + esc(search) + '"></label></div><div id="menu-list" class="dish-grid"></div><section id="recommendations" class="recommendations"></section><div class="cart-bar" hidden></div>';
     document.querySelector('#search').addEventListener('input', event => { search = event.target.value; refreshMenu(); });
     refreshMenu();
     refreshCart();
   }
   function refreshCart() {
     const bar = document.querySelector('.cart-bar');
-    if (bar) bar.innerHTML = '<button class="button" data-guest="cart"' + (cart.length ? '' : ' disabled') + '>View cart <span>' + cart.reduce((sum, line) => sum + line.quantity, 0) + ' items · ' + currency(cartTotal()) + '</span></button>';
+    if (!bar) return;
+    bar.hidden = !cart.length;
+    const quantity = cart.reduce((sum, line) => sum + line.quantity, 0);
+    bar.innerHTML = '<button class="button" data-guest="cart">View cart <span>' + quantity + (quantity === 1 ? ' item' : ' items') + ' · ' + currency(cartTotal()) + '</span></button>';
   }
   function selectView(view) {
     active = view;
@@ -401,3 +404,6 @@ async function start() {
   }
 }
 queueMicrotask(start);
+if (!localDemo && location.protocol === 'https:' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
