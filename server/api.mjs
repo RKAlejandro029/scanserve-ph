@@ -6,6 +6,7 @@ import { analytics, clean, InputError, makeQuote, payOrder, placeOrder, recommen
 
 const guestCookie = 'scanserve_guest';
 const staffCookie = 'scanserve_auth';
+const recoveryCookie = 'scanserve_recovery';
 const json = (value, status = 200, cookie) => Response.json(value, {
   status, headers: { 'Cache-Control': 'no-store', ...(cookie ? { 'Set-Cookie': cookie } : {}) }
 });
@@ -22,8 +23,8 @@ function cookieValue(request, name) {
   return request.headers.get('cookie')?.split(';').map(s => s.trim()).find(s => s.startsWith(name + '='))?.slice(name.length + 1);
 }
 
-function setCookie(url, name, value, seconds) {
-  return name + '=' + value + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + seconds + (url.protocol === 'https:' ? '; Secure' : '');
+function setCookie(url, name, value, seconds, path = '/') {
+  return name + '=' + value + '; Path=' + path + '; HttpOnly; SameSite=Lax; Max-Age=' + seconds + (url.protocol === 'https:' ? '; Secure' : '');
 }
 
 async function readJSON(request) {
@@ -111,6 +112,20 @@ export function createApi({ store, origin, defaultSlug, demoEnabled = false, sup
         await mutate(slug, current => limit(current, 'register:' + hash(ip), 6));
         await auth.register(input);
         return json({ ok: true });
+      }
+
+      if (action === 'recover' && post) {
+        requireThat(!state.demo, 'Password recovery is unavailable for the demo.', 404);
+        const ip = request.headers.get('x-vercel-forwarded-for') || 'local';
+        await mutate(slug, current => limit(current, 'recover:' + hash(ip), 4));
+        const verifier = randomBytes(32).toString('base64url');
+        await auth.requestRecovery(input, verifier);
+        return json({ ok: true }, 200, setCookie(url, recoveryCookie, verifier, 3600, '/api/reset-password'));
+      }
+      if (action === 'reset-password' && post) {
+        requireThat(!state.demo, 'Password recovery is unavailable for the demo.', 404);
+        await auth.resetPassword(input, cookieValue(request, recoveryCookie));
+        return json({ ok: true }, 200, setCookie(url, recoveryCookie, '', 0, '/api/reset-password'));
       }
 
       const authToken = cookieValue(request, staffCookie);

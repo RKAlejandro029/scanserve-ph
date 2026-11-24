@@ -84,7 +84,9 @@ function authPage(register, staffAccess = false) {
   shell('<main class="wrap auth"><section><p class="overline">SCANSERVE PH</p><h1>' + (register ? 'Create an account' : guestNext ? 'Guest sign in' : 'Staff sign in') + '</h1>'
     + '<form id="auth"><label>Restaurant slug<input name="slug" value="' + esc(slug) + '" required pattern="[a-z0-9-]+" maxlength="64"></label><label>Email<input name="email" type="email" autocomplete="username" required></label><label>Password<input name="password" type="password" autocomplete="' + (register ? 'new-password' : 'current-password') + '" required ' + (register ? 'minlength="10"' : '') + '></label>'
     + '<button class="button">' + (register ? 'Create account' : 'Sign in') + '</button><p class="feedback" role="status"></p></form>'
-    + '<p><a class="inline-link" href="' + (register ? '/login' : '/register') + query + '">' + (register ? 'Already have an account? Sign in' : 'Create a guest account') + '</a></p></section>'
+    + (register ? '<p><a class="inline-link" href="/login' + query + '">Already have an account? Sign in</a></p>' : '')
+    + (!register && guestNext ? '<p><a class="inline-link" href="/register' + query + '">Create a guest account</a></p>' : '')
+    + (!register && !localDemo ? '<p><a class="inline-link" href="/forgot-password' + query + '">Forgot your password?</a></p>' : '') + '</section>'
     + (localDemo && !register && !next && slug === 'mesa-demo' ? '<aside class="demo-login"><h2>Try a demo role</h2><p>Choose a role to fill in the demo credentials, then sign in.</p><div class="actions">'
       + demoCredentials.map(([label, id]) => '<button class="button light" data-demo="' + id + '">' + label + '</button>').join('') + '</div><a class="inline-link" href="' + demoPath + '">Open the guest menu</a></aside>' : '') + '</main>', '<a href="/">Home</a>');
   const form = document.querySelector('#auth');
@@ -104,6 +106,36 @@ function authPage(register, staffAccess = false) {
       await api(register ? 'register' : 'login', input, 'POST');
       if (register) feedback.textContent = 'Check your email for a confirmation link, then sign in.';
       else location.assign(next || '/staff/' + input.slug);
+    } catch (error) { feedback.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+}
+
+function recoveryPage(code = '') {
+  const slug = new URLSearchParams(location.search).get('restaurant') || restaurant;
+  context = { slug };
+  const query = '?restaurant=' + encodeURIComponent(slug);
+  const label = code ? 'Set a new password' : 'Reset your password';
+  shell('<main class="wrap auth"><section><h1>' + label + '</h1>'
+    + (code ? '' : '<p>Open the email link in this same browser.</p>')
+    + '<form id="recovery"><label>' + (code
+      ? 'New password<input type="password" name="password" autocomplete="new-password" required minlength="10" maxlength="128">'
+      : 'Email<input name="email" type="email" autocomplete="username" required>') + '</label>'
+    + '<button class="button">' + (code ? 'Save password' : 'Send reset link') + '</button><p class="feedback" role="status"></p></form>'
+    + '<p><a class="inline-link" href="' + (code ? '/forgot-password' : '/login') + query + '">'
+    + (code ? 'Request a new link' : 'Back to sign in') + '</a></p></section></main>');
+  const form = document.querySelector('#recovery');
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = form.querySelector('button');
+    const feedback = form.querySelector('.feedback');
+    const input = Object.fromEntries(new FormData(form));
+    button.disabled = true;
+    feedback.textContent = 'Please wait.';
+    try {
+      await api(code ? 'reset-password' : 'recover', code ? { ...input, code } : input, 'POST');
+      if (code) location.replace('/login' + query);
+      else feedback.textContent = 'If the account exists, check your inbox for a password reset link.';
     } catch (error) { feedback.textContent = error.message; }
     finally { button.disabled = false; }
   });
@@ -347,7 +379,12 @@ async function start() {
     : path === '/admin/sales' && restaurant ? '/staff/' + restaurant + '/analytics' : path;
   const staff = requestedStaff.match(/^\/staff\/([a-z0-9-]+)(?:\/([a-z-]+))?$/);
   try {
-    if (table) await guestPage(table[1], table[2]);
+    const code = new URLSearchParams(location.search).get('code');
+    if (!localDemo && (path === '/' || path === '/reset-password') && code) {
+      history.replaceState(null, '', '/reset-password');
+      recoveryPage(code);
+    } else if (!localDemo && (path === '/forgot-password' || path === '/reset-password')) recoveryPage();
+    else if (table) await guestPage(table[1], table[2]);
     else if (staff) {
       context = { slug: staff[1] };
       await staffPage(staff[1], staff[2]);

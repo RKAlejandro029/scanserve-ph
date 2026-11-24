@@ -86,3 +86,44 @@ test('sales reports use Philippine collection and refund dates', () => {
   assert.equal(stats.refunded, 1200);
   assert.deepEqual(stats.activity.map(row => [row.type, row.date]), [['payment', '2026-11-23'], ['refund', '2026-11-24']]);
 });
+
+test('password recovery binds the code to the requesting browser before updating the password', async t => {
+  const store = sqliteStore(':memory:');
+  t.after(() => store.close());
+  store.save('restaurant', -1, { ...demoRestaurant(), demo: false, slug: 'restaurant' });
+  const calls = [];
+  const origin = 'https://restaurant.example';
+  const api = createApi({
+    store, origin, defaultSlug: 'restaurant', supabaseUrl: 'https://database.example', anonKey: 'publishable-for-test',
+    fetcher: async (url, options) => {
+      const path = url.split('/auth/v1/')[1];
+      calls.push({ path, ...options, body: JSON.parse(options.body) });
+      return Response.json(path === 'token?grant_type=pkce' ? { access_token: 'recovery-token' } : {});
+    }
+  });
+  const post = (path, body, cookie = '') => api(new Request(origin + '/api/' + path, {
+    method: 'POST', headers: { Origin: origin, Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }));
+  const sent = await post('recover', { email: 'Staff@restaurant.example' });
+  assert.equal(sent.status, 200);
+  const setCookie = sent.headers.get('set-cookie');
+  assert.match(setCookie, /Path=\/api\/reset-password; HttpOnly; SameSite=Lax; Max-Age=3600; Secure/);
+  assert.equal(calls[0].path, 'recover');
+  assert.equal(calls[0].body.email, 'staff@restaurant.example');
+  assert.equal(calls[0].body.code_challenge_method, 's256');
+  const cookie = setCookie.split(';')[0];
+  const input = { code: '53fff199-5555-4111-8555-111111111111', password: 'new-example-password' };
+  assert.equal((await post('reset-password', input)).status, 400);
+  assert.equal(calls.length, 1);
+  const saved = await post('reset-password', input, cookie);
+  assert.equal(saved.status, 200);
+  assert.match(saved.headers.get('set-cookie'), /Max-Age=0/);
+  assert.equal(calls[1].path, 'token?grant_type=pkce');
+  assert.equal(calls[1].body.auth_code, input.code);
+  assert.equal(calls[1].body.code_verifier, cookie.split('=')[1]);
+  assert.notEqual(calls[1].body.code_verifier, calls[0].body.code_challenge);
+  assert.deepEqual([calls[2].path, calls[2].method, calls[2].headers.Authorization, calls[2].body.password],
+    ['user', 'PUT', 'Bearer recovery-token', input.password]);
+  assert.deepEqual(await saved.json(), { ok: true });
+});

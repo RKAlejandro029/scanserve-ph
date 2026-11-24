@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { demoRoles } from './seed.mjs';
 import { clean, requireThat } from './orders.mjs';
 
@@ -7,10 +7,10 @@ export const demoPassword = 'ScanServeDemo24!';
 
 export function createAuth({ supabaseUrl, anonKey, demoSecret, fetcher = fetch }) {
   const sign = value => createHmac('sha256', demoSecret).update(value).digest('base64url');
-  async function supabase(path, token, body) {
+  async function supabase(path, token, body, method = body ? 'POST' : 'GET') {
     requireThat(supabaseUrl && anonKey, 'Authentication is unavailable.', 503);
     return fetcher(supabaseUrl + '/auth/v1/' + path, {
-      method: body ? 'POST' : 'GET', cache: 'no-store',
+      method, cache: 'no-store',
       headers: { apikey: anonKey, ...(token ? { Authorization: 'Bearer ' + token } : {}), 'Content-Type': 'application/json' },
       ...(body ? { body: JSON.stringify(body) } : {})
     });
@@ -36,6 +36,28 @@ export function createAuth({ supabaseUrl, anonKey, demoSecret, fetcher = fetch }
       requireThat(email.includes('@') && password.length >= 10 && password.length <= 128, 'Use a valid email and a password of at least 10 characters.');
       const response = await supabase('signup', null, { email, password });
       requireThat(response.ok, 'Registration could not be completed.');
+    },
+    async requestRecovery(input, verifier) {
+      const email = clean(input.email, 254).toLowerCase();
+      requireThat(email.includes('@'), 'Enter a valid email address.');
+      const codeChallenge = createHash('sha256').update(verifier).digest('base64url');
+      const response = await supabase('recover', null, {
+        email, code_challenge: codeChallenge, code_challenge_method: 's256'
+      });
+      requireThat(response.ok, 'Could not send a password reset email. Try again later.', 429);
+    },
+    async resetPassword(input, verifier) {
+      const code = typeof input.code === 'string' ? input.code : '';
+      const password = typeof input.password === 'string' ? input.password : '';
+      requireThat(/^[A-Za-z0-9_-]{16,160}$/.test(code) && /^[A-Za-z0-9_-]{43}$/.test(verifier || ''),
+        'Open the reset link in the same browser that requested it, or request a new link.');
+      requireThat(password.length >= 10 && password.length <= 128, 'Use a password between 10 and 128 characters.');
+      const response = await supabase('token?grant_type=pkce', null, { auth_code: code, code_verifier: verifier });
+      const result = await response.json();
+      requireThat(response.ok && typeof result.access_token === 'string',
+        'This reset link expired or was already used. Request a new link.');
+      const saved = await supabase('user', result.access_token, { password }, 'PUT');
+      requireThat(saved.ok, 'The password could not be saved. Request a new link and try a different password.');
     },
     async user(token, demo) {
       if (!token) return null;
