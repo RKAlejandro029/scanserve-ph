@@ -46,7 +46,14 @@ export function createAuth({ supabaseUrl, anonKey, demoSecret, fetcher = fetch }
       const response = await supabase('recover', null, {
         email, code_challenge: codeChallenge, code_challenge_method: 's256'
       });
-      requireThat(response.ok, 'Could not send a password reset email. Try again later.', 429);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        requireThat(error.error_code !== 'over_email_send_rate_limit',
+          'The reset email limit has been reached. Wait before requesting another link.', 429);
+        requireThat(error.error_code !== 'over_request_rate_limit',
+          'Too many reset requests. Wait before trying again.', 429);
+        requireThat(false, 'Could not send a password reset email. Try again later.', 503);
+      }
     },
     async resetPassword(input, verifier) {
       const code = typeof input.code === 'string' ? input.code : '';
