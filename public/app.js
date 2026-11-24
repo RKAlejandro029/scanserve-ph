@@ -28,7 +28,7 @@ export async function api(action, input = {}, method = 'GET') {
 export const brand = '<a class="brand" href="/"><img src="/logo.svg" width="34" height="34" alt="">ScanServe<span>PH</span></a>';
 export function shell(body, right = '') {
   root.innerHTML = '<header class="top"><div class="top-inner">' + brand + '<nav aria-label="Main navigation">' + right + '</nav></div></header>' + body
-    + '<footer><span>ScanServe PH</span><span>Built for Filipino restaurants.</span></footer><div class="toast" role="status" aria-live="polite"></div>';
+    + '<footer><span>ScanServe PH</span><span>' + (localDemo ? 'Built for Filipino restaurants.' : '<a href="/menu-photo-credits.html">Menu photo credits</a>') + '</span></footer><div class="toast" role="status" aria-live="polite"></div>';
 }
 let toastTimer;
 export function notify(message, error = false) {
