@@ -133,8 +133,8 @@ function recoveryPage(code = '') {
     button.disabled = true;
     feedback.textContent = 'Please wait.';
     try {
-      await api(code ? 'reset-password' : 'recover', code ? { ...input, code } : input, 'POST');
-      if (code) location.replace('/login' + query);
+      const result = await api(code ? 'reset-password' : 'recover', code ? { ...input, code } : input, 'POST');
+      if (code) location.replace(result.next);
       else feedback.textContent = 'If the account exists, check your inbox for a password reset link.';
     } catch (error) { feedback.textContent = error.message; }
     finally { button.disabled = false; }

@@ -90,15 +90,17 @@ test('sales reports use Philippine collection and refund dates', () => {
 test('password recovery binds the code to the requesting browser before updating the password', async t => {
   const store = sqliteStore(':memory:');
   t.after(() => store.close());
-  store.save('restaurant', -1, { ...demoRestaurant(), demo: false, slug: 'restaurant' });
+  store.save('restaurant', -1, { ...demoRestaurant(), demo: false, slug: 'restaurant', employees: [{ id: 'staff-id', role: 'admin' }] });
   const calls = [];
   const origin = 'https://restaurant.example';
   const api = createApi({
     store, origin, defaultSlug: 'restaurant', supabaseUrl: 'https://database.example', anonKey: 'publishable-for-test',
     fetcher: async (url, options) => {
       const path = url.split('/auth/v1/')[1];
-      calls.push({ path, ...options, body: JSON.parse(options.body) });
-      return Response.json(path === 'token?grant_type=pkce' ? { access_token: 'recovery-token' } : {});
+      calls.push({ path, ...options, body: options.body ? JSON.parse(options.body) : undefined });
+      if (path === 'token?grant_type=pkce') return Response.json({ access_token: 'recovery-token', expires_in: 3600 });
+      if (path === 'user') return Response.json({ id: 'staff-id' });
+      return Response.json({});
     }
   });
   const post = (path, body, cookie = '') => api(new Request(origin + '/api/' + path, {
@@ -118,12 +120,18 @@ test('password recovery binds the code to the requesting browser before updating
   assert.equal(calls.length, 1);
   const saved = await post('reset-password', input, cookie);
   assert.equal(saved.status, 200);
-  assert.match(saved.headers.get('set-cookie'), /Max-Age=0/);
+  const cookies = saved.headers.getSetCookie();
+  const session = cookies.find(line => line.startsWith('scanserve_auth='));
+  assert.match(session, /scanserve_auth=recovery-token; Path=\/; HttpOnly; SameSite=Lax; Max-Age=3600; Secure/);
+  assert.match(cookies.find(line => line.startsWith('scanserve_recovery=')), /Max-Age=0/);
   assert.equal(calls[1].path, 'token?grant_type=pkce');
   assert.equal(calls[1].body.auth_code, input.code);
   assert.equal(calls[1].body.code_verifier, cookie.split('=')[1]);
   assert.notEqual(calls[1].body.code_verifier, calls[0].body.code_challenge);
   assert.deepEqual([calls[2].path, calls[2].method, calls[2].headers.Authorization, calls[2].body.password],
     ['user', 'PUT', 'Bearer recovery-token', input.password]);
-  assert.deepEqual(await saved.json(), { ok: true });
+  assert.deepEqual(await saved.json(), { ok: true, next: '/staff/restaurant' });
+  const staff = await api(new Request(origin + '/api/staff', { headers: { Cookie: session.split(';')[0] } }));
+  assert.equal(staff.status, 200);
+  assert.equal((await staff.json()).role, 'admin');
 });

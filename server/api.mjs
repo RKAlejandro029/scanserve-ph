@@ -7,9 +7,11 @@ import { analytics, clean, InputError, makeQuote, payOrder, placeOrder, recommen
 const guestCookie = 'scanserve_guest';
 const staffCookie = 'scanserve_auth';
 const recoveryCookie = 'scanserve_recovery';
-const json = (value, status = 200, cookie) => Response.json(value, {
-  status, headers: { 'Cache-Control': 'no-store', ...(cookie ? { 'Set-Cookie': cookie } : {}) }
-});
+function json(value, status = 200, ...cookies) {
+  const headers = new Headers({ 'Cache-Control': 'no-store' });
+  for (const cookie of cookies) if (cookie) headers.append('Set-Cookie', cookie);
+  return Response.json(value, { status, headers });
+}
 const hash = token => createHash('sha256').update(token).digest('hex');
 const orderView = order => {
   const view = { ...order };
@@ -124,8 +126,11 @@ export function createApi({ store, origin, defaultSlug, demoEnabled = false, sup
       }
       if (action === 'reset-password' && post) {
         requireThat(!state.demo, 'Password recovery is unavailable for the demo.', 404);
-        await auth.resetPassword(input, cookieValue(request, recoveryCookie));
-        return json({ ok: true }, 200, setCookie(url, recoveryCookie, '', 0, '/api/reset-password'));
+        const session = await auth.resetPassword(input, cookieValue(request, recoveryCookie));
+        const employee = state.employees.find(row => row.id === session.id && row.role !== 'revoked');
+        return json({ ok: true, next: employee ? '/staff/' + slug : '/' }, 200,
+          setCookie(url, staffCookie, session.token, session.maxAge),
+          setCookie(url, recoveryCookie, '', 0, '/api/reset-password'));
       }
 
       const authToken = cookieValue(request, staffCookie);

@@ -27,7 +27,9 @@ export function createAuth({ supabaseUrl, anonKey, demoSecret, fetcher = fetch }
       }
       const response = await supabase('token?grant_type=password', null, { email, password });
       const data = await response.json();
-      requireThat(response.ok && data.access_token, 'Sign-in failed. Check your credentials and email confirmation.', 401);
+      requireThat(response.ok && data.access_token, data.error_code === 'email_not_confirmed'
+        ? 'Confirm your email address before signing in.'
+        : 'The email and password did not match. You can reset your password below.', 401);
       return { token: data.access_token, maxAge: Number(data.expires_in) || ttl };
     },
     async register(input) {
@@ -58,6 +60,8 @@ export function createAuth({ supabaseUrl, anonKey, demoSecret, fetcher = fetch }
         'This reset link expired or was already used. Request a new link.');
       const saved = await supabase('user', result.access_token, { password }, 'PUT');
       requireThat(saved.ok, 'The password could not be saved. Request a new link and try a different password.');
+      const { id } = await saved.json();
+      return { id, token: result.access_token, maxAge: Number(result.expires_in) || ttl };
     },
     async user(token, demo) {
       if (!token) return null;
